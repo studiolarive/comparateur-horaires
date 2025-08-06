@@ -14,6 +14,7 @@ openai_api_key = st.text_input("🔑 Ta clé API OpenAI", type="password")
 uploaded_file_1 = st.file_uploader("📁 Fichier 1 – PDF interne", type=["pdf"])
 uploaded_file_2 = st.file_uploader("📁 Fichier 2 – PDF web", type=["pdf"])
 
+# 📤 Fonction d'upload avec affichage d’erreur détaillée
 def upload_file(file_data, file_name):
     response = requests.post(
         "https://api.openai.com/v1/files",
@@ -21,8 +22,14 @@ def upload_file(file_data, file_name):
         files={"file": (file_name, file_data)},
         data={"purpose": "assistants"}
     )
-    return response.json()["id"]
 
+    if response.status_code == 200:
+        return response.json()["id"]
+    else:
+        st.error(f"❌ Erreur lors de l'upload : {response.status_code} — {response.text}")
+        raise Exception("Échec de l'upload")
+
+# ▶️ Traitement
 if uploaded_file_1 and uploaded_file_2 and openai_api_key:
     if st.button("🚀 Comparer les deux fichiers"):
         with st.spinner("📤 Envoi des fichiers à l'IA..."):
@@ -31,7 +38,7 @@ if uploaded_file_1 and uploaded_file_2 and openai_api_key:
                 file1_id = upload_file(uploaded_file_1, uploaded_file_1.name)
                 file2_id = upload_file(uploaded_file_2, uploaded_file_2.name)
 
-                # Création du message de comparaison
+                # Message de comparaison
                 prompt = (
                     f"Tu dois comparer deux fichiers PDF d’horaires de bus. "
                     f"Ils sont au format PDF (différente mise en page), mais contiennent normalement les mêmes infos. "
