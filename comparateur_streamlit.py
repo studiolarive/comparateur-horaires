@@ -46,12 +46,26 @@ if api_key and file1 and file2:
 
         with st.spinner("🧠 Analyse en cours (environ 1 minute)..."):
             thread = client.beta.threads.create()
+
             client.beta.threads.messages.create(
                 thread_id=thread.id,
                 role="user",
-                content="Compare ces deux fichiers PDF d’horaires et signale les différences de contenu.",
-                file_ids=[id1, id2]
+                content=[
+                    {
+                        "type": "text",
+                        "text": "Compare ces deux fichiers PDF d’horaires et signale les différences de contenu."
+                    },
+                    {
+                        "type": "file",
+                        "file_id": id1
+                    },
+                    {
+                        "type": "file",
+                        "file_id": id2
+                    }
+                ]
             )
+
             run = client.beta.threads.runs.create(thread_id=thread.id, assistant_id=assistant.id)
 
             while True:
