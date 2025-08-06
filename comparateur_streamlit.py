@@ -1,71 +1,72 @@
 import streamlit as st
 import openai
 import requests
+import time
 
-st.set_page_config(page_title="Comparateur d'Horaires PDF", layout="centered")
+st.set_page_config(page_title="Comparateur PDF (Assistant GPT-4o)", layout="centered")
 
-st.title("📄 Comparateur de Fichiers d'Horaires (GPT-4o)")
-st.markdown("**Dépose deux fichiers PDF d’horaires (version interne + version web), et l’IA te dira s’ils contiennent les mêmes infos.**")
+st.title("📄 Comparateur d'Horaires PDF avec l'Assistant GPT-4o")
+st.markdown("Dépose deux fichiers PDF (interne et web), et GPT-4o te dira s’ils sont cohérents.")
 
-# 🔑 Clé API
-openai_api_key = st.text_input("🔑 Ta clé API OpenAI", type="password")
+api_key = st.text_input("🔑 Clé API OpenAI", type="password")
 
-# 📁 Fichiers
-uploaded_file_1 = st.file_uploader("📁 Fichier 1 – PDF interne", type=["pdf"])
-uploaded_file_2 = st.file_uploader("📁 Fichier 2 – PDF web", type=["pdf"])
+file1 = st.file_uploader("📁 PDF Interne", type=["pdf"])
+file2 = st.file_uploader("📁 PDF Web", type=["pdf"])
 
-# 📤 Fonction d'upload avec affichage d’erreur détaillée
-def upload_file(file_data, file_name):
+def upload_file_to_openai(file, key):
     response = requests.post(
         "https://api.openai.com/v1/files",
-        headers={"Authorization": f"Bearer {openai_api_key}"},
-        files={"file": (file_name, file_data)},
+        headers={"Authorization": f"Bearer {key}"},
+        files={"file": (file.name, file)},
         data={"purpose": "assistants"}
     )
-
     if response.status_code == 200:
         return response.json()["id"]
     else:
-        st.error(f"❌ Erreur lors de l'upload : {response.status_code} — {response.text}")
-        raise Exception("Échec de l'upload")
+        raise Exception(f"Erreur upload : {response.text}")
 
-# ▶️ Traitement
-if uploaded_file_1 and uploaded_file_2 and openai_api_key:
-    if st.button("🚀 Comparer les deux fichiers"):
-        with st.spinner("📤 Envoi des fichiers à l'IA..."):
+if api_key and file1 and file2:
+    if st.button("🚀 Lancer la comparaison"):
+        with st.spinner("📤 Upload des fichiers..."):
             try:
-                # Upload des fichiers et récupération des IDs
-                file1_id = upload_file(uploaded_file_1, uploaded_file_1.name)
-                file2_id = upload_file(uploaded_file_2, uploaded_file_2.name)
-
-                # Message de comparaison
-                prompt = (
-                    f"Tu dois comparer deux fichiers PDF d’horaires de bus. "
-                    f"Ils sont au format PDF (différente mise en page), mais contiennent normalement les mêmes infos. "
-                    f"Fais un tableau clair ou une liste des différences ou oublis, arrêt par arrêt."
-                )
-
-                # Appel à GPT-4o
-                client = openai.OpenAI(api_key=openai_api_key)
-
-                response = client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[
-                        {"role": "system", "content": "Tu es un assistant rigoureux d’analyse de documents."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    tool_choice="auto",
-                    temperature=0.2,
-                    max_tokens=2500,
-                    file_ids=[file1_id, file2_id]
-                )
-
-                result = response.choices[0].message.content
-                st.success("✅ Comparaison terminée !")
-                st.markdown("### Résultat de l'analyse :")
-                st.text_area("💬 Rapport de comparaison", value=result, height=400)
-
+                id1 = upload_file_to_openai(file1, api_key)
+                id2 = upload_file_to_openai(file2, api_key)
             except Exception as e:
-                st.error(f"❌ Erreur : {e}")
+                st.error(str(e))
+                st.stop()
+
+        with st.spinner("⚙️ Création de l'assistant..."):
+            client = openai.OpenAI(api_key=api_key)
+            assistant = client.beta.assistants.create(
+                name="Comparateur PDF Horaires",
+                instructions="Tu es un assistant chargé de comparer deux fichiers PDF contenant des horaires de bus. "
+                             "Tu dois signaler les différences ou incohérences, arrêt par arrêt, et ignorer la mise en page.",
+                model="gpt-4o"
+            )
+
+        with st.spinner("🧠 Analyse en cours (environ 1 minute)..."):
+            thread = client.beta.threads.create()
+            client.beta.threads.messages.create(
+                thread_id=thread.id,
+                role="user",
+                content="Compare ces deux fichiers PDF d’horaires et signale les différences de contenu.",
+                file_ids=[id1, id2]
+            )
+            run = client.beta.threads.runs.create(thread_id=thread.id, assistant_id=assistant.id)
+
+            while True:
+                run_status = client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
+                if run_status.status == "completed":
+                    break
+                elif run_status.status == "failed":
+                    st.error("❌ L'analyse a échoué.")
+                    st.stop()
+                time.sleep(2)
+
+        with st.spinner("📩 Récupération du résultat..."):
+            messages = client.beta.threads.messages.list(thread_id=thread.id)
+            final_response = messages.data[0].content[0].text.value
+            st.success("✅ Comparaison terminée !")
+            st.text_area("💬 Résultat :", final_response, height=400)
 else:
-    st.info("➡️ Charge les deux fichiers et entre ta clé API pour lancer la comparaison.")
+    st.info("➡️ Ajoute ta clé API et les deux fichiers pour démarrer.")
